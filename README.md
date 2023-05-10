@@ -17,6 +17,7 @@ To run the application, you need:
 1. Clone this repository:
 
 git clone https://github.com/yahiakala/meeting-summarizer.git
+
 cd meeting-summarizer
 
 
