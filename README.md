@@ -31,6 +31,7 @@ pip install -r requirements.txt
 5. Add your OpenAI API key to the `secrets.toml` file:
 
 [secrets]
+
 OPENAI_API_KEY = "your_openai_api_key"
 
 6. To ensure that the `.streamlit` folder is not added to version control, add the following line to your `.gitignore` file:
