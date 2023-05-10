@@ -1,25 +1,23 @@
 import streamlit as st
 import openai
-import json
+import tiktoken
 
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-openai.api_key = OPENAI_API_KEY
+# openai.api_key = OPENAI_API_KEY
 
-system_msg = [{'role': 'system', 'content': """
-You are a meeting minute taker. You accept meeting minutes in the following format:
-
-<Start Time> --> <Stop Time> <v Person's name>Things they say</v>
-
-You will answer the following questions:
-
-1. What are the biggest pain points for Adam and Kevin? If there are none, respond with 'NA'.
-2. What features did Adam and Kevin request or want? List all of them in detail. If there are none, respond with 'NA'.
-3. What are the action items for each person in the meeting? If there are none, respond with 'NA'.
-
-Use the following format:
-{"Q1": "<Answer>", "Q2": "<Answer>", "Q3": "<Answer>"}
+summary_msg = [{'role': 'system', 'content': """
+Summarize the text in 500 words.
 """}]
 
+action_item_msg = [{'role': 'system', 'content': """
+Summarize the action items in the provided text in a bulleted list.
+"""}]
+
+
+def num_tokens(text: str, model: str = 'gpt-3.5-turbo') -> int:
+    """Return the number of tokens in a string."""
+    encoding = tiktoken.encoding_for_model(model)
+    return len(encoding.encode(text))
 
 
 def read_vtt_file(file):
@@ -37,7 +35,7 @@ def split_into_chunks(entries, max_tokens=4096):
     current_tokens = 0
 
     for entry in entries:
-        tokens = len(entry)
+        tokens = num_tokens(entry)
         if current_tokens + tokens > max_tokens:
             chunks.append("\n".join(current_chunk))
             current_chunk = [entry]
@@ -61,8 +59,8 @@ def get_completion_from_messages(messages, model="gpt-3.5-turbo", temperature=0)
     return response.choices[0].message["content"]
 
 
-st.title("ChatGPT VTT File Processor")
-st.write("Upload a .vtt file and get a ChatGPT response.")
+st.title("MS Teams Call Summarizer")
+st.write("Upload a .vtt file (Teams Transcript file).")
 
 uploaded_file = st.file_uploader("Choose a .vtt file", type="vtt")
 
@@ -73,88 +71,67 @@ if uploaded_file is not None:
     st.write("Splitting content into entries...")
     entries = split_into_entries(vtt_content)
     st.write("Entries : ", len(entries))
-    # st.write(entries[1])
-    # st.write('--')
-    # st.write(entries[2])
-    # st.write('--')
-    # st.write(entries[3])
+    st.write("Combining entries into chunks...")
+    
+    max_tokens = 3900
+    chunks = split_into_chunks(entries[1:], max_tokens)
+    num_words = int(max_tokens / len(chunks))
+    # st.write(f'Chunks will be summarized into {num_words} words')
 
-    st.write("Splitting entries into chunks...")
-    chunks = split_into_chunks(entries[1:])
+    chunking_msg = [{'role': 'system', 'content': f"""
+    You are a meeting minute summarizer. You accept meeting minutes in the following format:
+
+    <Start Time> --> <Stop Time> <v Person's name>Things they say</v>
+
+    Summarize the text, focusing on action items. Use at most {num_words} words.
+    """}]
+    print(chunking_msg)
+
+    
     st.write("Chunks : ", len(chunks))
 
-    st.write("Generating ChatGPT response...")
+    st.write("Generating Summary and Action Items...")
     chatgpt_responses = []
-    chatgpt_resp_dicts = []
 
-    # cnt = 0
-    # for chunk in chunks:
-    #     cnt += 1
-    #     messages = [{'role': 'user', 'content': chunk}]
-    #     response = get_completion_from_messages(system_msg + messages)
-    #     chatgpt_responses.append(response)
-    #     st.write('Chunk: ', cnt, ' of ', len(chunks))
-    #     st.write(response)
-    #     chatgpt_resp_dicts.append(json.loads(response))
+    cnt = 0
+    for chunk in chunks:
+        cnt += 1
+        messages = [{'role': 'user', 'content': chunk}]
+        response = get_completion_from_messages(chunking_msg + messages)
+        chatgpt_responses.append(response)
+        st.write('Chunk: ', cnt, ' of ', len(chunks))
+        # st.write(response)
     
-    chatgpt_resp_dicts = [
-        {"Q1": "Adam's biggest pain points are the lack of communication from CMIC when there are issues and the limited options for aesthetics in financial statements. Kevin's pain point is not mentioned in the given meeting minutes.", "Q2": "Adam and Kevin requested or wanted the following features: \n- Clear communication from CMIC when there are issues and workarounds\n- More options for aesthetics in financial statements, such as separate columns, font size changes, and color additions", "Q3": "There are no action items mentioned in the given meeting minutes."},
-        {"Q1": "The biggest pain points for Adam and Kevin are the lack of communication and the slow printing process.", "Q2": "Adam and Kevin requested or wanted a fix for the slow printing process, better communication regarding updates and fixes, and a dashboard or table with formatting and coloring options for CMIC analytics.", "Q3": "Action items for each person in the meeting are not clear from the given transcript."},
-        {"Q1": "The biggest pain points for Adam and Kevin are missing important emails and the lack of flexibility in formatting financial statements.", "Q2": "Adam and Kevin requested or wanted the following features: 1) Ability to receive important emails, 2) More flexibility in formatting financial statements, including different fonts, bolding, and colors, 3) BI functionality to display data in charts and do calculations.", "Q3": "Action items for each person: Adam wants to receive important emails and is looking for more flexibility in formatting financial statements. Kevin will ensure that Adam is added to the email list and will look into finding the missing email. Yahia Kala will explore BI functionality and note Adam's request for bolding and italics."},
-        {"Q1": "Adam's pain points are having limited font options and the inability to modify financial statements easily. Kevin's pain point is not being able to easily compare financial statements from different periods.", "Q2": "Adam and Kevin want bold and italic font options, different font options, and the ability to modify financial statements more easily. They also want the ability to compare financial statements from different periods more easily.", "Q3": "Adam's action item is to provide more specific details on the modifications he wants for financial statements. Kevin's action item is to provide more specific details on the features he wants for comparing financial statements from different periods."},
-        {"Q1": "Adam's biggest pain point is having to manually choose the consolidation code for each financial document, while Kevin's biggest pain point is not knowing how to import the data into BI or create a new dashboard query.", "Q2": "Adam and Kevin both requested the ability to choose the consolidation code at runtime, and for the BI integration to have better functionality in a future patch. Adam also asked for training on how to use the BI functionality.", "Q3": "Adam's action item is to provide a list of the 25 different consolidation codes needed, while Kevin's action item is to explore the manual process of bringing the data into BI until better functionality is available in a future patch."},
-        {"Q1": "The biggest pain points for Adam and Kevin are not being able to automate the process and having to manually add tables to the General Ledger folder.", "Q2": "The features that Adam and Kevin requested or wanted are not explicitly stated in the given meeting minutes.", "Q3": "There are no action items for each person in the meeting explicitly stated in the given meeting minutes."},
-        {"Q1": "There is no clear indication of pain points for Adam and Kevin in this meeting.", "Q2": "Adam and Kevin did not request any features in this meeting.", "Q3": "There are no clear action items for Adam and Kevin in this meeting."},
-        {"Q1": "Adam's biggest pain point is the inability to indent columns right. There is no clear pain point mentioned for Kevin.", "Q2": "Adam wants the ability to indent columns right. Kevin requests for help with linking a table view and asks about new features in BI, including improved dashboards and more types of charts.", "Q3": "Action items for Adam: Send Yahia Kala a visual example of the indentation piece. \nAction items for Kevin: Link the table view correctly and explore new features in BI, including improved dashboards and more types of charts."},
-        {"Q1": "There is no clear indication of pain points for Adam and Kevin in this meeting.", "Q2": "Adam and Kevin did not request any features in this meeting.", "Q3": "There are no clear action items for Adam and Kevin in this meeting."},
-        {"Q1": "The biggest pain points for Adam and Kevin are understanding the structure of the financial document and how to match the columns in the BI query to the correct data in the financial document.", "Q2": "Adam and Kevin requested or wanted the following features: a way to manually check which columns in the financial document correspond to the columns in the BI query, a page filter to select a specific document code and fiscal year/fiscal period, and a way to break down the data by department.", "Q3": "The action items for Adam and Kevin are to manually check the columns in the financial document to match them to the BI query, implement a page filter to select a specific document code and fiscal year/fiscal period, and figure out how to break down the data by department."},
-        {"Q1": "The biggest pain points for Adam and Kevin are understanding how the consolidation code works and how to filter data in BI based on specific criteria.", "Q2": "Features requested or wanted include the ability to filter data in BI based on consolidation code and other criteria, a quick rundown of what the sequence number means, and the ability to change consolidation codes in BI.", "Q3": "Action items for Adam and Kevin are not specified in the given meeting minutes."},
-        {"Q1": "The biggest pain points for Adam and Kevin are the manual creation of BI queries for each financial document and the difficulty in joining tables to get the department code.", "Q2": "The features that Adam and Kevin requested or wanted are: automation between financial documents and BI, the ability to do a join where they can just say, give me a department code, separate BI queries for each financial document, and the ability to add colors and make the presentation of the data more presentable.", "Q3": "The action items for each person in the meeting are not explicitly stated in the given meeting minutes."},
-        {"Q1": "Adam and Kevin's pain points are not explicitly stated in the meeting minutes.", "Q2": "Kevin requested a project health dashboard that shows where his project stands on a daily basis. He also wants a collaborative dashboard with two versions - an owner version and a GCC version. Adam did not request any features.", "Q3": "Action items for Kevin: provide feedback on CBI, test CBI, and continue to use CBI. Action items for Yahia Kala: work on collaboration functionality using Project Gateway and P type users, increase adoption of BI in those contexts, and implement a project health dashboard in Patch 17."},
-        {"Q1": "Adam and Kevin's biggest pain points are related to project health and profitability tracking. They want to be able to see real-time data and have access to dashboards that are customizable to their needs.", "Q2": "Adam and Kevin requested or want the following features: \n- Out-of-the-box dashboards related to owners and subcontractors\n- Generic project health dashboard with the ability to add or remove information\n- Real-time data tracking for profitability and project health\n- Customizable dashboards for different levels of the organization (project, business unit, enterprise)\n- Interactive CEO dashboard with period-to-period basis tracking of profitability\n", "Q3": "Action items for each person in the meeting are not specified in the given meeting minutes."},
-        {"Q1": "It is not clear from the conversation what the pain points for Adam and Kevin are.", "Q2": "Kevin wants a feature called 'owners app' that allows for collaboration and messaging through the app. He also wants BI to work on the app and for it to be real-time. Adam did not request any specific features.", "Q3": "Action items for Yahia Kala: Send Kevin an invite to the meeting schedule and provide him with Adam's email. Action items for Kevin: None mentioned in the conversation. Action items for Adam: None mentioned in the conversation."},
-        {"Q1": "The biggest pain points for Adam and Kevin are not having an internal chat communication system and struggling with creating new calculations and columns in CBI.", "Q2": "The features that Adam and Kevin requested or wanted are:\n- An internal chat communication system\n- An issue or task creation feature\n- A way to easily track assigned tasks\n- More powerful features\n- Help with creating new calculations and columns in CBI", "Q3": "The action items for each person in the meeting are not explicitly stated in the given meeting minutes."},
-        {"Q1": "There is no mention of pain points for Adam and Kevin in these meeting minutes.", "Q2": "There is no mention of any specific features that Adam and Kevin requested or wanted.", "Q3": "There are no action items mentioned in these meeting minutes."}
-    ]
+    chatgpt_responses_txt = '\n\n'.join(chatgpt_responses)
 
-    qstr = ['What are the biggest pain points for Adam and Kevin?',
-            'What features did Adam and Kevin request or want? List all of them in detail.',
-            'What are the action items for each person in the meeting?']
-    
-    final_resp_txt = ''
-    for i, j in zip(['Q1', 'Q2', 'Q3'], qstr):
-        final_resp_txt += '\n\nQuestion: ' + j + '\n\n'
-        for resp in chatgpt_resp_dicts:
-            final_resp_txt += '\n' + resp[i]
+    # chatgpt_responses_txt = """
+    # The team discussed the use of GPT for documentation and the progress made on financial tasks. They agreed on two phases, with phase one including tasks such as the print button and populating beyond I. The team also discussed the train structure and the need for UI runtime to dynamically launch BI queries or dashboards. They targeted patch 20 for completion of phase one and acknowledged that phase two may not be completed before Connect. The team agreed to continue working on phase two regardless.
 
-    # st.write(final_resp_txt)
-    responses_msg = [{'role': 'user', 'content': final_resp_txt}]
-    
-    prompt = """
-    Your task is to summarize answers to questions compiled from multiple people.
-    
-    Summarize the answers to the three questions in the provided text at the bottom.
+    # During the meeting, the team discussed various topics related to the FDF BI integration project. They talked about identifying row types and building logic around conditional formatting of any row that says total on it. They also discussed the redesigning of some things and consolidation code, as well as new views for cash flow and job cost. The team also talked about the deprecation of the printing functionality and the addition of a new option for processing without print. They also discussed the sending of reports to BI and the limitations of the Excel renderer. The team agreed that they need to have separate options for printing and processing reports.
 
-    Use at most 100 words for each answer.
+    # The team discussed the need for a print button and a process button for analytics. They also talked about the different print options available and how they don't all have overlapping functionality. Customers want formatting options like single and double underlines, but these don't make sense in BI. The team plans to consolidate all print options into one tool and replace the spiria output with a drilling function. They also plan to improve the output and allow for font and header/footer changes. The view button for MIP may be left in place if customers need it.
 
-    Use the following format:
-    Question
-    <Answer>
+    # During the meeting, Yahia Kala provided updates on various projects. Gord Rawlins discussed the first phase of a project and assured Yahia that nothing was going away. Yahia also mentioned that a customer was interested in BI and drill downs. Justin Pham provided an update on the analytics for construct apps and mentioned that the Flutter team was finalizing some outstanding items. Yahia also discussed the FDF project and asked Justin about the progress. Justin explained that he was building a web service to generate a BI query and replace it if it already existed. Gord raised concerns about losing customized BI queries, but Justin suggested updating the query instead of
 
-    Question
-    <Answer>
+    # The team discussed the issue of updating analytics and potentially losing user-defined fields and calculated columns. They talked about the possibility of renaming columns instead of deleting and recreating them, but ultimately decided that it would be best to prompt users to save a copy of their customizations before updating analytics. They also discussed the fact that not all changes affect BI and that only changes to dependent data should result in the loss of calculated columns. The team also reviewed a script for creating calculated columns and discussed the power of being able to make calculations based on subtotals. Finally, they talked about the importance of keeping the names of columns consistent to avoid losing calculated columns.
 
-    Question
-    <Answer>
+    # During the meeting, the team discussed changes to the OR and calculated columns. They debated whether or not to erase existing data and how to warn users of potential data loss. They also discussed the various customization options available to users, including creating new calculated fields and adding descriptions to columns. The team ultimately decided to add a warning message when updating analytics and only erase data if the user confirms. They acknowledged that the warning message would appear every time the user updates analytics, but felt it was necessary to prevent accidental data loss.
 
-    Provided Text:
-    """ + final_resp_txt
-    
-    compiling_msg = [{'role': 'user', 'content': prompt}]
-    
-    st.write('ChatGPT Final Response:')
-    st.write(prompt)
-    # resp_final = get_completion_from_messages(compiling_msg)
-    # st.write(resp_final)
+    # During the meeting, the team discussed the issue of preserving financial document format (FDF) code when making changes to the document. They agreed that if someone does a "save as" of the document, it should break the link to the original FDF code. The team also discussed how to identify if a business intelligence (BI) query belongs to a specific FDF document, and they decided to use an additional attribute called FDF code. They also discussed the possibility of linking multiple BI queries to the same FDF document to create a dashboard. However, the team did not agree on this approach, as it would make the process more complicated. They also discussed the
+
+    # During the meeting, the team discussed the auto-creation of documents and the use of FDF document codes. Rastislav suggested that the document code was not enough and that they would need to expose the link and present all the queries linked with that document type. However, Gord thought that this was overkill and that they only needed to be able to render documents. Yahia suggested an idea that would not require overcomplicating things and still allow them to achieve the functionality they needed in the future. They would keep the current attribute of FDF, document code, for each BI report, and the auto-creation
+
+    # During the meeting, Justin Pham brought up an issue with the app's search function. He explained that when searching for a dashboard, they currently only have a document code and cannot determine if a dashboard exists. He suggested that they need to have the folder ID that the dashboard is using to ensure they can find it. Gord Rawlins clarified that they only have one dashboard, but Yahia Kala mentioned that it's possible to have multiple dashboards due to changes or configuration. They agreed to keep the search function as is for now and figure out a solution offline.
+    # """
+
+    task1 = summary_msg + [{'role': 'user', 'content': chatgpt_responses_txt}]
+    task2 = action_item_msg + [{'role': 'user', 'content': chatgpt_responses_txt}]
+
+    st.write("# Meeting Summary")
+    resp1 = get_completion_from_messages(task1)
+    st.write(resp1)
+    st.write("# Action Items")
+    resp2 = get_completion_from_messages(task2)
+    st.write(resp2)
 
 
