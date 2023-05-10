@@ -6,7 +6,7 @@ OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 # openai.api_key = OPENAI_API_KEY
 
 summary_msg = [{'role': 'system', 'content': """
-Summarize the text in 500 words.
+Summarize the text in 300 words.
 """}]
 
 action_item_msg = [{'role': 'system', 'content': """
