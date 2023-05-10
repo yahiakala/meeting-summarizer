@@ -10,7 +10,7 @@ Summarize the text in 300 words.
 """}]
 
 action_item_msg = [{'role': 'system', 'content': """
-Summarize the action items in the provided text in a bulleted list.
+List the action items from the text in a bulleted list.
 """}]
 
 
