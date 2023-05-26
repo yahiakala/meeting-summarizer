@@ -1,6 +1,7 @@
 import streamlit as st
 import openai
 import tiktoken
+import re
 
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 # openai.api_key = OPENAI_API_KEY
@@ -11,6 +12,7 @@ Summarize the text in 300 words.
 
 action_item_msg = [{'role': 'system', 'content': """
 List the action items from the text in a bulleted list.
+Do not summarize the text.
 """}]
 
 
@@ -24,10 +26,20 @@ def read_vtt_file(file):
     content = file.read().decode("utf-8")
     return content.strip()
 
+
 def split_into_entries(content):
     entries = content.split('</v>')
     entries = [entry.strip() + '</v>' for entry in entries[:-1]]
     return entries
+
+
+def split_into_entries2(content):
+    pattern = r"\d{2}:\d{2}:\d{2}\.\d{3} --> \d{2}:\d{2}:\d{2}\.\d{3}"  # noqa
+    entries = re.split(pattern, content)
+    # entries = [entry.split('\n') for entry in entries[:-1]]
+    entries = [' '.join(entry.split('\n')[:-2]) for entry in entries[1:-1]]
+    return entries
+
 
 def split_into_chunks(entries, max_tokens=4096):
     chunks = []
@@ -50,7 +62,8 @@ def split_into_chunks(entries, max_tokens=4096):
     return chunks
 
 
-def get_completion_from_messages(messages, model="gpt-3.5-turbo", temperature=0):
+def get_completion_from_messages(messages, model="gpt-3.5-turbo",
+                                 temperature=0):
     response = openai.ChatCompletion.create(
         model=model,
         messages=messages,
@@ -70,24 +83,29 @@ if uploaded_file is not None:
 
     st.write("Splitting content into entries...")
     entries = split_into_entries(vtt_content)
+    if len(entries) == 0:
+        entries = split_into_entries2(vtt_content)
+        st.write(entries[:10])
+
     st.write("Entries : ", len(entries))
     st.write("Combining entries into chunks...")
-    
+
     max_tokens = 3900
     chunks = split_into_chunks(entries[1:], max_tokens)
     num_words = int(max_tokens / len(chunks))
     # st.write(f'Chunks will be summarized into {num_words} words')
 
     chunking_msg = [{'role': 'system', 'content': f"""
-    You are a meeting minute summarizer. You accept meeting minutes in the following format:
+    You are a meeting minute summarizer.
+    You accept meeting minutes in the following format:
 
     <Start Time> --> <Stop Time> <v Person's name>Things they say</v>
 
-    Summarize the text, focusing on action items. Use at most {num_words} words.
+    Summarize the text, focusing on action items.
+    Use at most {num_words} words.
     """}]
     print(chunking_msg)
 
-    
     st.write("Chunks : ", len(chunks))
 
     st.write("Generating Summary and Action Items...")
@@ -101,11 +119,12 @@ if uploaded_file is not None:
         chatgpt_responses.append(response)
         st.write('Chunk: ', cnt, ' of ', len(chunks))
         # st.write(response)
-    
+
     chatgpt_responses_txt = '\n\n'.join(chatgpt_responses)
 
     task1 = summary_msg + [{'role': 'user', 'content': chatgpt_responses_txt}]
-    task2 = action_item_msg + [{'role': 'user', 'content': chatgpt_responses_txt}]
+    task2 = action_item_msg + \
+        [{'role': 'user', 'content': chatgpt_responses_txt}]
 
     st.write("# Meeting Summary")
     resp1 = get_completion_from_messages(task1)
@@ -113,5 +132,3 @@ if uploaded_file is not None:
     st.write("# Action Items")
     resp2 = get_completion_from_messages(task2)
     st.write(resp2)
-
-
